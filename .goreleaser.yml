@@ -1,0 +1,41 @@
+# See http://goreleaser.com
+project_name: klzip
+before:
+  hooks:
+    - go mod download
+builds:
+  - id: klzip
+    binary: klzip
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      #- windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+nfpms:
+  - description: Better faster gzip
+    vendor: K42 Software
+    homepage: https://www.k42.io/
+    maintainer: Brian Wojtczak <support@k42.io>
+    #epoch: 1
+    #release: 1
+    formats:
+      - deb
+      - rpm
+checksum:
+  algorithm: sha256
+signs:
+  - id: gpg
+    artifacts: all
+    signature: "${artifact}.gpg"
+snapshot:
+  name_template: "{{ .Version }}-next"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
