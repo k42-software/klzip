@@ -180,16 +180,18 @@ func compressHandler(cmd *gocmd.Cmd, args []string) error {
 		named = false
 	}
 
-	log.Println("DEBUG: filename:", filename)
-	log.Println("DEBUG: suffix:", suffix)
-	log.Println("DEBUG: level:", level)
-	log.Println("DEBUG: keep:", keep)
-	log.Println("DEBUG: force:", force)
-	log.Println("DEBUG: named:", named)
-	log.Println("DEBUG: verbose:", verbose)
-
 	rsyncable := cmd.FlagValue("Rsyncable").(bool)
-	log.Println("DEBUG: rsyncable:", rsyncable)
+
+	if verbose {
+		log.Println("DEBUG: filename:", filename)
+		log.Println("DEBUG: suffix:", suffix)
+		log.Println("DEBUG: level:", level)
+		log.Println("DEBUG: keep:", keep)
+		log.Println("DEBUG: force:", force)
+		log.Println("DEBUG: named:", named)
+		log.Println("DEBUG: rsyncable:", rsyncable)
+	}
+
 	if rsyncable {
 		return XflateCompressFile(filename, suffix, level, keep, force, named, verbose)
 	}
@@ -203,11 +205,12 @@ func decompressHandler(cmd *gocmd.Cmd, args []string) error {
 	force := cmd.FlagValue("Force").(bool)
 	verbose := cmd.FlagValue("Verbose").(bool)
 
-	log.Println("DEBUG: filename:", filename)
-	log.Println("DEBUG: suffix:", suffix)
-	log.Println("DEBUG: keep:", keep)
-	log.Println("DEBUG: force:", force)
-	log.Println("DEBUG: verbose:", verbose)
+	if verbose {
+		log.Println("DEBUG: filename:", filename)
+		log.Println("DEBUG: suffix:", suffix)
+		log.Println("DEBUG: keep:", keep)
+		log.Println("DEBUG: force:", force)
+	}
 
 	return DecompressFile(filename, suffix, keep, force, verbose)
 }
