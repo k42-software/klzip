@@ -5,11 +5,9 @@
 package main
 
 import (
-	"bufio"
 	"encoding/binary"
 	"github.com/dsnet/compress/xflate"
 	"github.com/dustin/go-humanize"
-	"github.com/google/renameio"
 	"github.com/klauspost/compress/gzip"
 	"github.com/pkg/errors"
 	"hash/crc32"
@@ -27,18 +25,9 @@ const (
 	gzipOSUnknown = 255
 )
 
-func XflateCompressFile(filename, suffix string, level int, keep, force, named, verbose bool) (err error) {
-
-	var (
-		inputInfo  os.FileInfo
-		outputInfo os.FileInfo
-		inputFile  *os.File
-		outputFile *renameio.PendingFile
-		xw         *xflate.Writer
-		written    int64
-
-		outputFilename string
-	)
+// XflateCompressFile is like CompressFile but writes the data as an xflate
+// stream inside a gzip container, which makes the output seekable.
+func XflateCompressFile(filename, suffix string, level int, keep, force, named, verbose bool) error {
 
 	started := time.Now().UTC()
 
@@ -49,126 +38,75 @@ func XflateCompressFile(filename, suffix string, level int, keep, force, named, 
 		)
 	}
 
-	inputInfo, err = os.Stat(filename)
-	if err != nil {
-		return errors.Wrap(err, "error stating input file")
-	}
+	res, err := convertFile(filename, keep, force, func(r io.Reader, info os.FileInfo) (*conversion, error) {
+		return &conversion{
+			outputFilename: filename + suffix,
+			mtime:          info.ModTime(),
+			run: func(w io.Writer) error {
+				// Write Gzip header.
+				header := &gzip.Header{
+					Comment: "Encoded using XFLATE",
+					OS:      gzipOSUnknown,
+				}
+				if named {
+					header.Name = filepath.Base(filename)
+					header.ModTime = info.ModTime()
+				}
+				if _, err := writeGzipHeader(w, header); err != nil {
+					return errors.Wrap(err, "error writing header")
+				}
 
-	inputFile, err = os.Open(filename)
-	if err != nil {
-		return errors.Wrap(err, "error opening input file")
-	}
-	//goland:noinspection GoUnhandledErrorResult
-	defer inputFile.Close()
+				// Instead of using flate.Writer, we use xflate.Writer instead.
+				// We choose a relative small chunk size of 64KiB for better
+				// random access properties, at the expense of compression ratio.
+				xw, err := xflate.NewWriter(w, &xflate.WriterConfig{
+					Level:     level,
+					ChunkSize: 1 << 16,
+				})
+				if err != nil {
+					return errors.Wrap(err, "error creating xflate writer")
+				}
 
-	outputFilename = filename + suffix
+				// Write the test data.
+				crc := crc32.NewIEEE()
+				mw := io.MultiWriter(xw, crc) // Write to both compressor and hasher
+				written, err := io.Copy(mw, r)
+				if err != nil {
+					return errors.Wrap(err, "error writing data")
+				}
 
-	if !force {
-		if _, err := os.Stat(outputFilename); err == nil {
-			return errors.New("output file already exists")
-		}
-	}
+				if err := xw.Flush(xflate.FlushSync); err != nil {
+					return errors.Wrap(err, "error flushing data")
+				}
 
-	outputFile, err = renameio.TempFile(filepath.Dir(outputFilename), outputFilename)
-	if err != nil {
-		return errors.Wrap(err, "error creating temporary output file")
-	}
-	//goland:noinspection GoUnhandledErrorResult
-	defer outputFile.Cleanup()
+				if err := xw.Close(); err != nil {
+					return errors.Wrap(err, "error closing output writer")
+				}
 
-	if err := copyMode(outputFile.File, inputInfo); err != nil {
-		return err
-	}
+				// Write Gzip footer.
+				if err := binary.Write(w, binary.LittleEndian, uint32(crc.Sum32())); err != nil {
+					return errors.Wrap(err, "error writing footer: checksum")
+				}
+				if err := binary.Write(w, binary.LittleEndian, uint32(written)); err != nil {
+					return errors.Wrap(err, "error writing footer: size")
+				}
 
-	outputBuffer := bufio.NewWriter(outputFile)
-
-	// Write Gzip header.
-	header := &gzip.Header{
-		Comment: "Encoded using XFLATE",
-		OS:      gzipOSUnknown,
-	}
-	if named {
-		header.Name = filepath.Base(filename)
-		header.ModTime = inputInfo.ModTime()
-	}
-	_, err = writeGzipHeader(outputBuffer, header)
-	if err != nil {
-		return errors.Wrap(err, "error writing header")
-	}
-
-	// Instead of using flate.Writer, we use xflate.Writer instead.
-	// We choose a relative small chunk size of 64KiB for better
-	// random access properties, at the expense of compression ratio.
-	xw, err = xflate.NewWriter(outputBuffer, &xflate.WriterConfig{
-		Level:     level,
-		ChunkSize: 1 << 16,
+				return nil
+			},
+		}, nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "error creating xflate writer")
-	}
-
-	// Write the test data.
-	crc := crc32.NewIEEE()
-	mw := io.MultiWriter(xw, crc) // Write to both compressor and hasher
-	written, err = io.Copy(mw, bufio.NewReader(inputFile))
-	if err != nil {
-		return errors.Wrap(err, "error writing data")
-	}
-
-	if err := inputFile.Close(); err != nil {
-		return errors.Wrap(err, "error closing input file")
-	}
-
-	if err := xw.Flush(xflate.FlushSync); err != nil {
-		return errors.Wrap(err, "error flushing data")
-	}
-
-	if err := xw.Close(); err != nil {
-		return errors.Wrap(err, "error closing output writer")
-	}
-
-	// Write Gzip footer.
-	err = binary.Write(outputBuffer, binary.LittleEndian, uint32(crc.Sum32()))
-	if err != nil {
-		return errors.Wrap(err, "error writing footer: checksum")
-	}
-	err = binary.Write(outputBuffer, binary.LittleEndian, uint32(written))
-	if err != nil {
-		return errors.Wrap(err, "error writing footer: size")
-	}
-
-	if err := outputBuffer.Flush(); err != nil {
-		return errors.Wrap(err, "error flushing output buffer")
-	}
-
-	if err := copyTimes(outputFile.Name(), inputInfo.ModTime()); err != nil {
 		return err
-	}
-
-	if err := outputFile.CloseAtomicallyReplace(); err != nil {
-		return errors.Wrap(err, "error atomically closing output file")
-	}
-
-	outputInfo, err = os.Stat(outputFilename)
-	if err != nil {
-		return errors.Wrap(err, "error stating output file")
-	}
-
-	if !keep {
-		if err = os.Remove(filename); err != nil {
-			return errors.Wrap(err, "error removing input file")
-		}
 	}
 
 	if verbose {
-		duration := time.Since(started)
 		log.Printf(
 			"Compressed %s from %s to %s (level %d) in %v",
-			outputFilename,
-			humanize.Bytes(uint64(inputInfo.Size())),
-			humanize.Bytes(uint64(outputInfo.Size())),
+			res.outputFilename,
+			humanize.Bytes(uint64(res.inputSize)),
+			humanize.Bytes(uint64(res.outputSize)),
 			level,
-			duration,
+			time.Since(started),
 		)
 	}
 

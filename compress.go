@@ -5,32 +5,21 @@
 package main
 
 import (
-	"bufio"
-	"github.com/dustin/go-humanize"
-	"github.com/google/renameio"
-	"github.com/klauspost/compress/gzip"
-	"github.com/pkg/errors"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/dustin/go-humanize"
+	"github.com/klauspost/compress/gzip"
+	"github.com/pkg/errors"
 )
 
 // CompressFile takes a filename and compresses it to a new file of the
 // same name with a .gz suffix added.  If keep is false, the original file is
 // deleted if compression is successful.
-func CompressFile(filename, suffix string, level int, keep, force, named, verbose bool) (err error) {
-
-	var (
-		inputInfo  os.FileInfo
-		outputInfo os.FileInfo
-		inputFile  *os.File
-		outputFile *renameio.PendingFile
-		zw         *gzip.Writer
-
-		outputFilename string
-	)
+func CompressFile(filename, suffix string, level int, keep, force, named, verbose bool) error {
 
 	started := time.Now().UTC()
 
@@ -41,103 +30,54 @@ func CompressFile(filename, suffix string, level int, keep, force, named, verbos
 		)
 	}
 
-	inputInfo, err = os.Stat(filename)
+	res, err := convertFile(filename, keep, force, func(r io.Reader, info os.FileInfo) (*conversion, error) {
+		return &conversion{
+			outputFilename: filename + suffix,
+			mtime:          info.ModTime(),
+			run: func(w io.Writer) error {
+				zw, err := gzip.NewWriterLevel(w, level)
+				if err != nil {
+					return errors.Wrap(err, "error creating gzip writer")
+				}
+
+				if named {
+					zw.Name = filepath.Base(filename)
+					zw.ModTime = info.ModTime()
+				} else {
+					// A zero time.Time has a large negative Unix time, which the writer
+					// truncates into a bogus header mtime.  The Unix epoch encodes as 0,
+					// meaning no mtime.
+					zw.ModTime = time.Unix(0, 0)
+				}
+
+				if _, err := io.Copy(zw, r); err != nil {
+					return errors.Wrap(err, "error writing data")
+				}
+
+				if err := zw.Flush(); err != nil {
+					return errors.Wrap(err, "error flushing data")
+				}
+
+				if err := zw.Close(); err != nil {
+					return errors.Wrap(err, "error closing output writer")
+				}
+
+				return nil
+			},
+		}, nil
+	})
 	if err != nil {
-		return errors.Wrap(err, "error stating input file")
-	}
-
-	inputFile, err = os.Open(filename)
-	if err != nil {
-		return errors.Wrap(err, "error opening input file")
-	}
-	//goland:noinspection GoUnhandledErrorResult
-	defer inputFile.Close()
-
-	outputFilename = filename + suffix
-
-	if !force {
-		if _, err := os.Stat(outputFilename); err == nil {
-			return errors.New("output file already exists")
-		}
-	}
-
-	outputFile, err = renameio.TempFile(filepath.Dir(outputFilename), outputFilename)
-	if err != nil {
-		return errors.Wrap(err, "error creating temporary output file")
-	}
-	//goland:noinspection GoUnhandledErrorResult
-	defer outputFile.Cleanup()
-
-	if err := copyMode(outputFile.File, inputInfo); err != nil {
 		return err
-	}
-
-	outputBuffer := bufio.NewWriter(outputFile)
-
-	zw, err = gzip.NewWriterLevel(outputBuffer, level)
-	if err != nil {
-		return errors.Wrap(err, "error creating gzip writer")
-	}
-
-	if named {
-		zw.Name = filepath.Base(filename)
-		zw.ModTime = inputInfo.ModTime()
-	} else {
-		// A zero time.Time has a large negative Unix time, which the writer
-		// truncates into a bogus header mtime.  The Unix epoch encodes as 0,
-		// meaning no mtime.
-		zw.ModTime = time.Unix(0, 0)
-	}
-
-	_, err = io.Copy(zw, bufio.NewReader(inputFile))
-	if err != nil {
-		return errors.Wrap(err, "error writing data")
-	}
-
-	if err := inputFile.Close(); err != nil {
-		return errors.Wrap(err, "error closing input file")
-	}
-
-	if err := zw.Flush(); err != nil {
-		return errors.Wrap(err, "error flushing data")
-	}
-
-	if err := zw.Close(); err != nil {
-		return errors.Wrap(err, "error closing output writer")
-	}
-
-	if err := outputBuffer.Flush(); err != nil {
-		return errors.Wrap(err, "error flushing output buffer")
-	}
-
-	if err := copyTimes(outputFile.Name(), inputInfo.ModTime()); err != nil {
-		return err
-	}
-
-	if err := outputFile.CloseAtomicallyReplace(); err != nil {
-		return errors.Wrap(err, "error atomically closing output file")
-	}
-
-	outputInfo, err = os.Stat(outputFilename)
-	if err != nil {
-		return errors.Wrap(err, "error stating output file")
-	}
-
-	if !keep {
-		if err = os.Remove(filename); err != nil {
-			return errors.Wrap(err, "error removing input file")
-		}
 	}
 
 	if verbose {
-		duration := time.Since(started)
 		log.Printf(
 			"Compressed %s from %s to %s (level %d) in %v",
-			outputFilename,
-			humanize.Bytes(uint64(inputInfo.Size())),
-			humanize.Bytes(uint64(outputInfo.Size())),
+			res.outputFilename,
+			humanize.Bytes(uint64(res.inputSize)),
+			humanize.Bytes(uint64(res.outputSize)),
 			level,
-			duration,
+			time.Since(started),
 		)
 	}
 
