@@ -19,8 +19,10 @@ import (
 type conversion struct {
 	// outputFilename is the path of the file to create.
 	outputFilename string
+
 	// mtime is the modification time given to the output file.
 	mtime time.Time
+
 	// run writes the converted data to w.  It must flush any encoder it
 	// created, but not w itself.
 	run func(w io.Writer) error

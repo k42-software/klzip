@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-// TestFile takes a filename and tests it for gzip integrity.
-func TestFile(filename string, verbose bool) (err error) {
+// VerifyFile takes a filename and checks it for gzip integrity.
+func VerifyFile(filename string, verbose bool) (err error) {
 
 	var (
 		inputInfo os.FileInfo
