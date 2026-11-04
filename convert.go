@@ -69,7 +69,7 @@ func convertFile(
 	// give the output the input's identity under another name.
 	if existing, err := os.Stat(c.outputFilename); err == nil {
 		if os.SameFile(inputInfo, existing) {
-			return res, errors.Errorf("%s: output would overwrite the input file", filename)
+			return res, errors.New("output would overwrite the input file")
 		}
 		if !force {
 			return res, errors.New("output file already exists")

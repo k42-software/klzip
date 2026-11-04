@@ -37,39 +37,91 @@ func TestDecompressFileRoundTrip(t *testing.T) {
 	}
 }
 
-// Decompressing a file that lacks the suffix must not replace or delete it,
-// even with force.
-func TestDecompressFileWithoutSuffixKeepsInput(t *testing.T) {
+// The output is named by taking the suffix of the compressed file off, or by
+// replacing it with .tar for the suffixes of compressed tar archives.
+func TestDecompressFileSuffixes(t *testing.T) {
+	tests := []struct {
+		name  string
+		file  string
+		extra string
+		want  string
+	}{
+		{"gz", "a.txt.gz", ".gz", "a.txt"},
+		{"hyphen gz", "a-gz", ".gz", "a"},
+		{"z", "a.z", ".gz", "a"},
+		{"hyphen z", "a-z", ".gz", "a"},
+		{"underscore z", "a_z", ".gz", "a"},
+		{"upper case Z", "a.Z", ".gz", "a"},
+		{"tgz", "a.tgz", ".gz", "a.tar"},
+		{"taz", "a.taz", ".gz", "a.tar"},
+		{"upper case gz", "A.GZ", ".gz", "A"},
+		{"upper case tgz", "A.TGZ", ".gz", "A.tar"},
+		{"extra suffix in another case", "a.FOO", ".foo", "a"},
+		{"extra suffix", "a.foo", ".foo", "a"},
+		{"extra suffix keeps the list", "a.tgz", ".foo", "a.tar"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tt.file)
+			if err := os.WriteFile(path, gzipBytes(t, "contents\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := DecompressFile(path, tt.extra, true, false, false, nil); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := os.ReadFile(filepath.Join(dir, tt.want))
+			if err != nil || string(got) != "contents\n" {
+				t.Errorf("%s = %q, %v; want the decompressed contents", tt.want, got, err)
+			}
+		})
+	}
+}
+
+// A file whose suffix says nothing about it being compressed is an error, and
+// is not touched.
+func TestDecompressFileUnknownSuffix(t *testing.T) {
+	for _, file := range []string{"a.txt", "a", "a.zip"} {
+		t.Run(file, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, file)
+			before := gzipBytes(t, "contents\n")
+			if err := os.WriteFile(path, before, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			for _, force := range []bool{false, true} {
+				err := DecompressFile(path, ".gz", false, force, false, nil)
+				if err == nil || err.Error() != "unknown suffix" {
+					t.Errorf("force=%v: error = %v, want %q", force, err, "unknown suffix")
+				}
+			}
+
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(before, after) {
+				t.Errorf("the file was changed or lost: %v", err)
+			}
+		})
+	}
+}
+
+// A name stored in the file is used with -N, and then the suffix does not
+// matter.
+func TestDecompressFileNamedIgnoresUnknownSuffix(t *testing.T) {
 	dir := t.TempDir()
-	src := filepath.Join(dir, "src.txt")
-	if err := os.WriteFile(src, []byte("some data\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := CompressFile(src, ".gz", 5, false, false, true, nil); err != nil {
+	path := filepath.Join(dir, "a.foo")
+	writeNamedGzip(t, path, "stored.txt", "contents\n")
+
+	if err := DecompressFile(path, ".gz", true, false, true, nil); err != nil {
 		t.Fatal(err)
 	}
 
-	// A gzip file whose name does not end in .gz.
-	path := filepath.Join(dir, "foo.txt")
-	if err := os.Rename(src+".gz", path); err != nil {
-		t.Fatal(err)
-	}
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, force := range []bool{false, true} {
-		if err := DecompressFile(path, ".gz", false, force, false, nil); err == nil {
-			t.Fatalf("force=%v: expected an error", force)
-		}
-		after, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("force=%v: input file lost: %v", force, err)
-		}
-		if !bytes.Equal(before, after) {
-			t.Fatalf("force=%v: input file modified", force)
-		}
+	got, err := os.ReadFile(filepath.Join(dir, "stored.txt"))
+	if err != nil || string(got) != "contents\n" {
+		t.Errorf("stored.txt = %q, %v; want the decompressed contents", got, err)
 	}
 }
 
@@ -161,8 +213,9 @@ func TestDecompressFileRefusesToOverwriteInputViaLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := DecompressFile(gz, ".gz", false, true, false, nil); err == nil {
-		t.Fatal("expected an error")
+	err = DecompressFile(gz, ".gz", false, true, false, nil)
+	if err == nil || err.Error() != "output would overwrite the input file" {
+		t.Fatalf("error = %v, want %q", err, "output would overwrite the input file")
 	}
 	after, err := os.ReadFile(gz)
 	if err != nil {

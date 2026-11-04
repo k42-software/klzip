@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -17,11 +16,13 @@ import (
 	"github.com/pkg/errors"
 )
 
-// DecompressFile takes a filename and decompresses it to a new file of the
-// same name without the suffix.  If named is true, the original name and
-// modification time stored in the file are restored when present.  If keep is
-// false, the original file is deleted if decompression is successful.  A nil
-// logger logs nothing.
+// DecompressFile takes a filename and decompresses it to a new file.  The new
+// file is named by taking the suffix of a compressed file off the name, or by
+// replacing .tgz or .taz with .tar.  The suffix is one more suffix of
+// compressed files, besides the usual ones.  If named is true, the original
+// name and modification time stored in the file are restored when present.  If
+// keep is false, the original file is deleted if decompression is successful.
+// A nil logger logs nothing.
 func DecompressFile(filename, suffix string, keep, force, named bool, logger *log.Logger) error {
 
 	started := time.Now().UTC()
@@ -39,20 +40,26 @@ func DecompressFile(filename, suffix string, keep, force, named bool, logger *lo
 			return nil, errors.Wrap(err, "error creating gzip reader")
 		}
 
-		// By default the output takes the name (suffix removed) and mtime of the
-		// compressed file.  With named, the name and mtime stored in the gzip
-		// header are used when present.
-		outputFilename := strings.TrimSuffix(filename, suffix)
+		// By default the output takes the name that decompressedName gives the
+		// compressed file, and its mtime.  With named, the name and mtime stored
+		// in the gzip header are used when present, and then the suffix does not
+		// matter.
+		outputFilename, known := decompressedName(filename, suffix)
 		mtime := info.ModTime()
 		if named {
 			if base := headerBaseName(zr.Name); base != "" {
 				outputFilename = filepath.Join(filepath.Dir(filename), base)
+				known = true
 			}
 			// The reader reports a header time of 0 (not recorded) as the Unix
 			// epoch, so test for that.
 			if zr.ModTime.Unix() > 0 {
 				mtime = zr.ModTime
 			}
+		}
+
+		if !known {
+			return nil, errors.New("unknown suffix")
 		}
 
 		return &conversion{

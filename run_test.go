@@ -37,22 +37,35 @@ func TestRunUnknownMode(t *testing.T) {
 	}
 }
 
-// A file that already has the suffix is left alone, unless forced.
+// A file that has the suffix of a compressed file, or the suffix of the
+// options, is left alone, unless forced.
 func TestRunCompressSkipsFilesWithSuffix(t *testing.T) {
 	tests := []struct {
-		name        string
-		file        string
-		suffix      string
-		force       bool
-		rsyncable   bool
-		wantSkipped bool
+		name      string
+		file      string
+		suffix    string
+		force     bool
+		rsyncable bool
+
+		// skippedFor is the suffix that the file is skipped for, or "" if it is
+		// compressed.
+		skippedFor string
 	}{
-		{"plain file", "a.txt", ".gz", false, false, false},
-		{"has suffix", "a.txt.gz", ".gz", false, false, true},
-		{"has suffix and rsyncable", "a.txt.gz", ".gz", false, true, true},
-		{"has suffix and force", "a.txt.gz", ".gz", true, false, false},
-		{"custom suffix", "a.foo", ".foo", false, false, true},
-		{"other suffix", "a.gz", ".foo", false, false, false},
+		{"plain file", "a.txt", ".gz", false, false, ""},
+		{"has suffix", "a.txt.gz", ".gz", false, false, ".gz"},
+		{"has suffix and rsyncable", "a.txt.gz", ".gz", false, true, ".gz"},
+		{"has suffix and force", "a.txt.gz", ".gz", true, false, ""},
+		{"tgz", "a.tgz", ".gz", false, false, ".tgz"},
+		{"z", "a.z", ".gz", false, false, ".z"},
+		{"custom suffix", "a.foo", ".foo", false, false, ".foo"},
+		{"custom suffix keeps the list", "a.gz", ".foo", false, false, ".gz"},
+		{"custom suffix keeps the list for tgz", "a.tgz", ".foo", false, false, ".tgz"},
+		{"upper case Z", "a.Z", ".gz", false, false, ".Z"},
+		{"upper case gz", "a.GZ", ".gz", false, false, ".GZ"},
+		{"mixed case tgz", "a.Tgz", ".gz", false, false, ".Tgz"},
+		{"extra suffix in another case", "a.FOO", ".foo", false, false, ".FOO"},
+		{"taz", "a.taz", ".gz", false, false, ".taz"},
+		{"unknown suffix", "a.zip", ".gz", false, false, ""},
 	}
 
 	for _, tt := range tests {
@@ -73,13 +86,13 @@ func TestRunCompressSkipsFilesWithSuffix(t *testing.T) {
 			}
 
 			_, err := os.Stat(path + tt.suffix)
-			if created := err == nil; created == tt.wantSkipped {
-				t.Errorf("output created = %v, want %v", created, !tt.wantSkipped)
+			if created, wantCreated := err == nil, tt.skippedFor == ""; created != wantCreated {
+				t.Errorf("output created = %v, want %v", created, wantCreated)
 			}
 
 			want := ""
-			if tt.wantSkipped {
-				want = "klzip: " + path + ": already has " + tt.suffix + " suffix -- unchanged\n"
+			if tt.skippedFor != "" {
+				want = "klzip: " + path + ": already has " + tt.skippedFor + " suffix -- unchanged\n"
 			}
 			if errs.String() != want {
 				t.Errorf("stderr = %q, want %q", errs.String(), want)

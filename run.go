@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -50,7 +49,9 @@ type Options struct {
 	// files, and keeps the files.  It is not used to test.
 	Stdout bool
 
-	// Suffix is the suffix of compressed files, with its leading dot.
+	// Suffix is added to the name of a file when compressing it, with its
+	// leading dot.  It is also a suffix of compressed files, besides the usual
+	// ones.
 	Suffix string
 
 	// Level is the compression level.  It is only used to compress.
@@ -126,19 +127,24 @@ func displayName(file string) string {
 	return file
 }
 
-// skipIfCompressed returns skipped for a file that already has the suffix, and
-// so is taken to be compressed already, unless the options force it.
+// skipIfCompressed returns skipped for a file whose name ends in one of the
+// suffixes of compressed files, or in the suffix of the options, and so is taken
+// to be compressed already, unless the options force it.
 func skipIfCompressed(opts Options, filename string) error {
-	if !opts.Force && strings.HasSuffix(filename, opts.Suffix) {
-		return skipped{reason: "already has " + opts.Suffix + " suffix -- unchanged"}
+	if opts.Force {
+		return nil
+	}
+
+	if rule, ok := matchSuffix(filename, opts.Suffix); ok {
+		return skipped{reason: "already has " + rule.suffix + " suffix -- unchanged"}
 	}
 
 	return nil
 }
 
-// compress compresses the file to a new file with the suffix added.  A file that
-// already has the suffix is skipped, unless the options force it.  A nil logger
-// logs nothing.
+// compress compresses the file to a new file with the suffix added.  A file
+// whose name ends in a suffix of compressed files, or in the suffix of the
+// options, is skipped, unless the options force it.  A nil logger logs nothing.
 func compress(opts Options, filename string, logger *log.Logger) error {
 	if err := skipIfCompressed(opts, filename); err != nil {
 		return err
