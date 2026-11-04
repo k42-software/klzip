@@ -6,6 +6,7 @@ package main
 
 import (
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -84,6 +85,22 @@ func TestParseArgs(t *testing.T) {
 				t.Errorf("stdout=%v licence=%v rsyncable=%v", c.Stdout, c.Licence, c.Rsyncable)
 			}
 		}},
+		{"several files", []string{"a", "b", "c"}, func(t *testing.T, c *CLI) { wantFiles(t, c, "a", "b", "c") }},
+		{"jobs", []string{"-j", "3", "f"}, func(t *testing.T, c *CLI) {
+			if c.Jobs != 3 {
+				t.Errorf("jobs = %d, want 3", c.Jobs)
+			}
+		}},
+		{"jobs not given", []string{"f"}, func(t *testing.T, c *CLI) {
+			if c.Jobs != 0 {
+				t.Errorf("jobs = %d, want 0", c.Jobs)
+			}
+		}},
+		{"zero jobs", []string{"-j", "0", "f"}, func(t *testing.T, c *CLI) {
+			if c.Jobs != 0 {
+				t.Errorf("jobs = %d, want 0", c.Jobs)
+			}
+		}},
 		{"name", []string{"-N", "f"}, func(t *testing.T, c *CLI) {
 			if !c.Name || c.NoName {
 				t.Errorf("name=%v noname=%v", c.Name, c.NoName)
@@ -117,7 +134,7 @@ func TestParseArgsErrors(t *testing.T) {
 		{"unknown short flag", []string{"-z", "f"}, "unknown flag -z"},
 		{"unknown short flag in group", []string{"-kz", "f"}, "unknown flag -z"},
 		{"missing suffix value", []string{"-S"}, "--suffix"},
-		{"several files", []string{"a", "b"}, "only one file is supported"},
+		{"negative jobs", []string{"--jobs=-2", "f"}, "--jobs must not be negative"},
 		{"name and no-name", []string{"-n", "-N", "f"}, "--no-name"},
 	}
 
@@ -179,32 +196,72 @@ func TestSuffix(t *testing.T) {
 	}
 }
 
+func TestJobs(t *testing.T) {
+	cpus := runtime.GOMAXPROCS(0)
+
+	tests := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{"not given", []string{"f"}, cpus},
+		{"given", []string{"-j", "3", "f"}, 3},
+		{"zero is the same as not given", []string{"-j", "0", "f"}, cpus},
+		{"decompress", []string{"-d", "f.gz"}, cpus},
+		{"compress with names", []string{"-N", "f"}, cpus},
+		{"decompress with names", []string{"-d", "-N", "f.gz"}, 1},
+		{"decompress with names and zero", []string{"-d", "-N", "-j", "0", "f.gz"}, 1},
+		{"decompress with names and jobs given", []string{"-d", "-N", "-j", "4", "f.gz"}, 4},
+		{"test with names", []string{"-t", "-d", "-N", "f.gz"}, cpus},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cli, err := parseArgs(tt.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cli.jobs(); got != tt.want {
+				t.Errorf("jobs = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestOptions(t *testing.T) {
+	jobs := runtime.GOMAXPROCS(0)
+
 	tests := []struct {
 		name string
 		args []string
 		want Options
 	}{
 		{"compress defaults", []string{"f"}, Options{
-			Mode: ModeCompress, Filename: "f", Suffix: ".gz", Level: 5, Named: true,
+			Mode: ModeCompress, Files: []string{"f"}, Jobs: jobs, Suffix: ".gz", Level: 5, Named: true,
 		}},
 		{"compress everything", []string{"-k", "-f", "-v", "-9", "-S", "foo", "--rsyncable", "f"}, Options{
-			Mode: ModeCompress, Filename: "f", Suffix: ".foo", Level: 9, Named: true,
+			Mode: ModeCompress, Files: []string{"f"}, Jobs: jobs, Suffix: ".foo", Level: 9, Named: true,
 			Keep: true, Force: true, Verbose: true, Rsyncable: true,
 		}},
 		// Compressed files are named unless -n is given.
 		{"compress no-name", []string{"-n", "f"}, Options{
-			Mode: ModeCompress, Filename: "f", Suffix: ".gz", Level: 5,
+			Mode: ModeCompress, Files: []string{"f"}, Jobs: jobs, Suffix: ".gz", Level: 5,
 		}},
 		// Names are only restored when decompressing if -N is given.
 		{"decompress", []string{"-d", "f.gz"}, Options{
-			Mode: ModeDecompress, Filename: "f.gz", Suffix: ".gz", Level: 5,
+			Mode: ModeDecompress, Files: []string{"f.gz"}, Jobs: jobs, Suffix: ".gz", Level: 5,
 		}},
 		{"decompress name", []string{"-d", "-N", "f.gz"}, Options{
-			Mode: ModeDecompress, Filename: "f.gz", Suffix: ".gz", Level: 5, Named: true,
+			Mode: ModeDecompress, Files: []string{"f.gz"}, Jobs: 1, Suffix: ".gz", Level: 5, Named: true,
+		}},
+		{"several files", []string{"-j", "2", "a", "b", "c"}, Options{
+			Mode: ModeCompress, Files: []string{"a", "b", "c"}, Jobs: 2, Suffix: ".gz", Level: 5, Named: true,
+		}},
+		{"repeated files are dropped", []string{"a", "./a", "b", "a"}, Options{
+			Mode: ModeCompress, Files: []string{"a", "b"}, Jobs: jobs, Suffix: ".gz", Level: 5, Named: true,
 		}},
 		{"test", []string{"-t", "f.gz"}, Options{
-			Mode: ModeTest, Filename: "f.gz", Suffix: ".gz", Level: 5, Named: true,
+			Mode: ModeTest, Files: []string{"f.gz"}, Jobs: jobs, Suffix: ".gz", Level: 5, Named: true,
 		}},
 	}
 
@@ -218,8 +275,32 @@ func TestOptions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got != tt.want {
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("options = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUniqueFiles(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+		want  []string
+	}{
+		{"none", nil, []string{}},
+		{"all different", []string{"a", "b", "c"}, []string{"a", "b", "c"}},
+		{"repeat", []string{"a", "b", "a"}, []string{"a", "b"}},
+		{"same file spelled differently", []string{"a", "./a", "dir/../a"}, []string{"a"}},
+		{"first spelling is kept", []string{"./a", "a"}, []string{"./a"}},
+		{"same name in different directories", []string{"x/a", "y/a"}, []string{"x/a", "y/a"}},
+		{"order is kept", []string{"c", "a", "b", "a", "c"}, []string{"c", "a", "b"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := uniqueFiles(tt.files); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("uniqueFiles(%q) = %q, want %q", tt.files, got, tt.want)
 			}
 		})
 	}

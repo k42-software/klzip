@@ -8,6 +8,7 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"os"
 
 	"github.com/alecthomas/kong"
 )
@@ -38,7 +39,9 @@ func main() {
 	opts, err := cli.options()
 	kctx.FatalIfErrorf(err)
 
-	kctx.FatalIfErrorf(Run(opts))
+	if !Run(opts, os.Stderr) {
+		os.Exit(1)
+	}
 }
 
 // kongOptions returns the options for parsing the command line.
@@ -47,7 +50,10 @@ func kongOptions() []kong.Option {
 		kong.Name(name),
 		kong.Description(description),
 		kong.UsageOnError(),
-		kong.Vars{"version": name + " " + versionString(), "suffix": defaultSuffix},
+		kong.Vars{
+			"version": name + " " + versionString(),
+			"suffix":  defaultSuffix,
+		},
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
 	}
 }

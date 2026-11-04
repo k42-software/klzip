@@ -6,28 +6,29 @@ package main
 
 import (
 	"bufio"
-	"github.com/dustin/go-humanize"
-	"github.com/klauspost/compress/gzip"
-	"github.com/pkg/errors"
 	"io"
 	"log"
 	"os"
 	"time"
+
+	"github.com/dustin/go-humanize"
+	"github.com/klauspost/compress/gzip"
+	"github.com/pkg/errors"
 )
 
-// VerifyFile takes a filename and checks it for gzip integrity.
-func VerifyFile(filename string, verbose bool) (err error) {
+// VerifyFile takes a filename and checks it for gzip integrity.  A nil logger
+// logs nothing.
+func VerifyFile(filename string, logger *log.Logger) (err error) {
 
 	var (
 		inputInfo os.FileInfo
 		inputFile *os.File
-		zr        *gzip.Reader
 	)
 
 	started := time.Now().UTC()
 
-	if verbose {
-		log.Printf(
+	if logger != nil {
+		logger.Printf(
 			"Testing %s",
 			filename,
 		)
@@ -45,31 +46,39 @@ func VerifyFile(filename string, verbose bool) (err error) {
 	//goland:noinspection GoUnhandledErrorResult
 	defer inputFile.Close()
 
-	zr, err = gzip.NewReader(bufio.NewReader(inputFile))
-	if err != nil {
-		return errors.Wrap(err, "error creating gzip reader")
-	}
-
-	_, err = io.Copy(io.Discard, zr)
-	if err != nil {
-		return errors.Wrap(err, "error decompressing file")
-	}
-
-	if err := zr.Close(); err != nil {
-		return errors.Wrap(err, "error closing gzip reader")
+	if err = verifyStream(bufio.NewReader(inputFile)); err != nil {
+		return err
 	}
 
 	if err := inputFile.Close(); err != nil {
 		return errors.Wrap(err, "error closing input file")
 	}
 
-	if verbose {
-		log.Printf(
+	if logger != nil {
+		logger.Printf(
 			"Tested %s (%s) in %v",
 			filename,
 			humanize.Bytes(uint64(inputInfo.Size())),
 			time.Since(started),
 		)
+	}
+
+	return nil
+}
+
+// verifyStream reads the gzip stream r to its end, and checks its trailer.
+func verifyStream(r io.Reader) error {
+	zr, err := gzip.NewReader(r)
+	if err != nil {
+		return errors.Wrap(err, "error creating gzip reader")
+	}
+
+	if _, err := io.Copy(io.Discard, zr); err != nil {
+		return errors.Wrap(err, "error decompressing file")
+	}
+
+	if err := zr.Close(); err != nil {
+		return errors.Wrap(err, "error closing gzip reader")
 	}
 
 	return nil

@@ -21,10 +21,10 @@ func TestDecompressFileRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := CompressFile(path, ".gz", 5, false, false, true, false); err != nil {
+	if err := CompressFile(path, ".gz", 5, false, false, true, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := DecompressFile(path+".gz", ".gz", false, false, false, false); err != nil {
+	if err := DecompressFile(path+".gz", ".gz", false, false, false, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -45,7 +45,7 @@ func TestDecompressFileWithoutSuffixKeepsInput(t *testing.T) {
 	if err := os.WriteFile(src, []byte("some data\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := CompressFile(src, ".gz", 5, false, false, true, false); err != nil {
+	if err := CompressFile(src, ".gz", 5, false, false, true, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -60,7 +60,7 @@ func TestDecompressFileWithoutSuffixKeepsInput(t *testing.T) {
 	}
 
 	for _, force := range []bool{false, true} {
-		if err := DecompressFile(path, ".gz", false, force, false, false); err == nil {
+		if err := DecompressFile(path, ".gz", false, force, false, nil); err == nil {
 			t.Fatalf("force=%v: expected an error", force)
 		}
 		after, err := os.ReadFile(path)
@@ -79,10 +79,10 @@ func TestDecompressNamedRestoresHeaderNameAndMtime(t *testing.T) {
 
 	compressors := map[string]func(string) error{
 		"compress": func(p string) error {
-			return CompressFile(p, ".gz", 5, true, false, true, false)
+			return CompressFile(p, ".gz", 5, true, false, true, nil)
 		},
 		"xflate": func(p string) error {
-			return XflateCompressFile(p, ".gz", 5, true, false, true, false)
+			return XflateCompressFile(p, ".gz", 5, true, false, true, nil)
 		},
 	}
 
@@ -107,7 +107,7 @@ func TestDecompressNamedRestoresHeaderNameAndMtime(t *testing.T) {
 			}
 
 			// Without named: suffix removed, mtime from the .gz file.
-			if err := DecompressFile(renamed, ".gz", true, false, false, false); err != nil {
+			if err := DecompressFile(renamed, ".gz", true, false, false, nil); err != nil {
 				t.Fatal(err)
 			}
 			checkMeta(t, filepath.Join(dir, "renamed"), 0o644, gzMtime)
@@ -116,7 +116,7 @@ func TestDecompressNamedRestoresHeaderNameAndMtime(t *testing.T) {
 			}
 
 			// With named: name and mtime from the header.
-			if err := DecompressFile(renamed, ".gz", true, false, true, false); err != nil {
+			if err := DecompressFile(renamed, ".gz", true, false, true, nil); err != nil {
 				t.Fatal(err)
 			}
 			checkMeta(t, orig, 0o644, headerMtime)
@@ -149,7 +149,7 @@ func TestDecompressFileRefusesToOverwriteInputViaLink(t *testing.T) {
 	if err := os.WriteFile(src, []byte("some data\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := CompressFile(src, ".gz", 5, false, false, true, false); err != nil {
+	if err := CompressFile(src, ".gz", 5, false, false, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	gz := src + ".gz"
@@ -161,7 +161,7 @@ func TestDecompressFileRefusesToOverwriteInputViaLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := DecompressFile(gz, ".gz", false, true, false, false); err == nil {
+	if err := DecompressFile(gz, ".gz", false, true, false, nil); err == nil {
 		t.Fatal("expected an error")
 	}
 	after, err := os.ReadFile(gz)
@@ -180,7 +180,7 @@ func TestDecompressNamedFallsBackWithoutHeaderFields(t *testing.T) {
 	dir := t.TempDir()
 	orig := filepath.Join(dir, "orig.txt")
 	writeInput(t, orig, 0o644, time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC))
-	if err := CompressFile(orig, ".gz", 5, true, false, false, false); err != nil {
+	if err := CompressFile(orig, ".gz", 5, true, false, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(orig); err != nil {
@@ -190,7 +190,7 @@ func TestDecompressNamedFallsBackWithoutHeaderFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := DecompressFile(orig+".gz", ".gz", true, false, true, false); err != nil {
+	if err := DecompressFile(orig+".gz", ".gz", true, false, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	checkMeta(t, orig, 0o644, gzMtime)
@@ -221,7 +221,7 @@ func TestDecompressNamedIgnoresStoredDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := DecompressFile(path, ".gz", true, false, true, false); err != nil {
+	if err := DecompressFile(path, ".gz", true, false, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "escape.txt")); err != nil {
@@ -260,7 +260,7 @@ func TestDecompressNamedRefusesToOverwriteInputViaLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := DecompressFile(path, ".gz", false, true, true, false); err == nil {
+	if err := DecompressFile(path, ".gz", false, true, true, nil); err == nil {
 		t.Fatal("expected an error")
 	}
 	after, err := os.ReadFile(path)

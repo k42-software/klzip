@@ -18,7 +18,7 @@ func TestCompressFileNoNameHasZeroMtime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := CompressFile(path, ".gz", 5, true, false, false, false); err != nil {
+	if err := CompressFile(path, ".gz", 5, true, false, false, nil); err != nil {
 		t.Fatal(err)
 	}
 

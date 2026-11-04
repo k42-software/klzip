@@ -5,6 +5,8 @@
 package main
 
 import (
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/alecthomas/kong"
@@ -24,6 +26,7 @@ type CLI struct {
 	Stdout     bool   `short:"c" help:"[NOT IMPLEMENTED] Write output to stdout instead of a file" aliases:"to-stdout"`
 	Decompress bool   `short:"d" help:"Decompress the input file"`
 	Force      bool   `short:"f" help:"Force overwrite of output file"`
+	Jobs       int    `short:"j" help:"Number of files to process at once (default: one per CPU, or 1 with -d -N)"`
 	Keep       bool   `short:"k" help:"Keep (don't delete) input files"`
 	List       bool   `short:"l" help:"[NOT IMPLEMENTED] List the contents of the compressed file"`
 	Licence    bool   `short:"L" help:"Display licence" aliases:"license"`
@@ -48,13 +51,13 @@ type CLI struct {
 	Level8 bool `short:"8" name:"level-8" hidden:"" help:"Compress level eight"`
 	Level9 bool `short:"9" name:"best" help:"Compress level nine (best)"`
 
-	Files []string `arg:"" optional:"" name:"file" help:"File to compress or decompress"`
+	Files []string `arg:"" optional:"" name:"file" help:"Files to compress or decompress"`
 }
 
 // Validate is called by kong after the command line has been parsed.
 func (c *CLI) Validate() error {
-	if len(c.Files) > 1 {
-		return errors.New("only one file is supported")
+	if c.Jobs < 0 {
+		return errors.New("--jobs must not be negative")
 	}
 	return nil
 }
@@ -85,6 +88,21 @@ func (c *CLI) suffix() string {
 	return c.Suffix
 }
 
+// jobs returns how many files to process at once.  Without -j, or with -j 0, it
+// is one per CPU, as limited by GOMAXPROCS.  When decompressing with -N it is
+// one, since the names stored in two files can be the same, and then only the
+// first file may write that output file.
+func (c *CLI) jobs() int {
+	switch {
+	case c.Jobs > 0:
+		return c.Jobs
+	case c.Decompress && c.Name && !c.Test:
+		return 1
+	default:
+		return runtime.GOMAXPROCS(0)
+	}
+}
+
 // options checks that the command line asks for something klzip can do, and
 // returns what to do.
 func (c *CLI) options() (Options, error) {
@@ -97,18 +115,23 @@ func (c *CLI) options() (Options, error) {
 		return Options{}, errors.New("--recursive is not implemented")
 	}
 
-	if len(c.Files) == 0 || c.Files[0] == "-" {
+	if len(c.Files) == 0 {
 		return Options{}, errors.New("reading from stdin is not implemented")
 	}
-	filename := c.Files[0]
 
-	if strings.HasPrefix(filename, "/dev/") {
-		return Options{}, errors.New("interacting with dev devices is not implemented yet")
+	for _, file := range c.Files {
+		switch {
+		case file == "-":
+			return Options{}, errors.New("reading from stdin is not implemented")
+		case strings.HasPrefix(file, "/dev/"):
+			return Options{}, errors.New("interacting with dev devices is not implemented yet")
+		}
 	}
 
 	opts := Options{
 		Mode:      ModeCompress,
-		Filename:  filename,
+		Files:     uniqueFiles(c.Files),
+		Jobs:      c.jobs(),
 		Suffix:    c.suffix(),
 		Level:     c.level(),
 		Keep:      c.Keep,
@@ -127,4 +150,26 @@ func (c *CLI) options() (Options, error) {
 	}
 
 	return opts, nil
+}
+
+// uniqueFiles returns the files without repeats, in their original order.
+// Two names are the same file when they have the same absolute path once
+// tidied, so "a" and "./a" match.  The first spelling of each is kept.
+func uniqueFiles(files []string) []string {
+	seen := make(map[string]bool, len(files))
+	unique := make([]string, 0, len(files))
+
+	for _, file := range files {
+		key, err := filepath.Abs(file)
+		if err != nil {
+			key = filepath.Clean(file)
+		}
+
+		if !seen[key] {
+			seen[key] = true
+			unique = append(unique, file)
+		}
+	}
+
+	return unique
 }

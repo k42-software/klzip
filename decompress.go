@@ -18,15 +18,16 @@ import (
 )
 
 // DecompressFile takes a filename and decompresses it to a new file of the
-// same name without the .gz suffix.  If named is true, the original name and
+// same name without the suffix.  If named is true, the original name and
 // modification time stored in the file are restored when present.  If keep is
-// false, the original file is deleted if decompression is successful.
-func DecompressFile(filename, suffix string, keep, force, named, verbose bool) error {
+// false, the original file is deleted if decompression is successful.  A nil
+// logger logs nothing.
+func DecompressFile(filename, suffix string, keep, force, named bool, logger *log.Logger) error {
 
 	started := time.Now().UTC()
 
-	if verbose {
-		log.Printf(
+	if logger != nil {
+		logger.Printf(
 			"Decompressing %s",
 			filename,
 		)
@@ -58,15 +59,7 @@ func DecompressFile(filename, suffix string, keep, force, named, verbose bool) e
 			outputFilename: outputFilename,
 			mtime:          mtime,
 			run: func(w io.Writer) error {
-				if _, err := io.Copy(w, zr); err != nil {
-					return errors.Wrap(err, "error decompressing data")
-				}
-
-				if err := zr.Close(); err != nil {
-					return errors.Wrap(err, "error closing gzip reader")
-				}
-
-				return nil
+				return decompressStream(zr, w)
 			},
 		}, nil
 	})
@@ -74,14 +67,29 @@ func DecompressFile(filename, suffix string, keep, force, named, verbose bool) e
 		return err
 	}
 
-	if verbose {
-		log.Printf(
+	if logger != nil {
+		logger.Printf(
 			"Decompressed %s from %s to %s in %v",
 			res.outputFilename,
 			humanize.Bytes(uint64(res.inputSize)),
 			humanize.Bytes(uint64(res.outputSize)),
 			time.Since(started),
 		)
+	}
+
+	return nil
+}
+
+// decompressStream copies the decompressed data of the gzip stream zr to w.
+// Reading the stream to its end checks its trailer, so a corrupt stream is an
+// error.
+func decompressStream(zr *gzip.Reader, w io.Writer) error {
+	if _, err := io.Copy(w, zr); err != nil {
+		return errors.Wrap(err, "error decompressing data")
+	}
+
+	if err := zr.Close(); err != nil {
+		return errors.Wrap(err, "error closing gzip reader")
 	}
 
 	return nil

@@ -20,7 +20,7 @@ func writeGzip(t *testing.T, dir string) (string, []byte) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := CompressFile(path, ".gz", 5, false, false, true, false); err != nil {
+	if err := CompressFile(path, ".gz", 5, false, false, true, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,7 +57,7 @@ func TestVerifyFile(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			err := VerifyFile(path, false)
+			err := VerifyFile(path, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("error = %v, want error: %v", err, tt.wantErr)
 			}
@@ -66,7 +66,7 @@ func TestVerifyFile(t *testing.T) {
 }
 
 func TestVerifyFileMissing(t *testing.T) {
-	if err := VerifyFile(filepath.Join(t.TempDir(), "missing.gz"), false); err == nil {
+	if err := VerifyFile(filepath.Join(t.TempDir(), "missing.gz"), nil); err == nil {
 		t.Error("expected an error")
 	}
 }
@@ -75,7 +75,7 @@ func TestVerifyFileMissing(t *testing.T) {
 func TestVerifyFileLeavesInput(t *testing.T) {
 	path, gz := writeGzip(t, t.TempDir())
 
-	if err := VerifyFile(path, false); err != nil {
+	if err := VerifyFile(path, nil); err != nil {
 		t.Fatal(err)
 	}
 

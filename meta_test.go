@@ -44,10 +44,10 @@ func TestOutputPreservesModeAndMtime(t *testing.T) {
 
 	compressors := map[string]func(string) error{
 		"compress": func(p string) error {
-			return CompressFile(p, ".gz", 5, true, false, true, false)
+			return CompressFile(p, ".gz", 5, true, false, true, nil)
 		},
 		"xflate": func(p string) error {
-			return XflateCompressFile(p, ".gz", 5, true, false, true, false)
+			return XflateCompressFile(p, ".gz", 5, true, false, true, nil)
 		},
 	}
 
@@ -70,7 +70,7 @@ func TestOutputPreservesModeAndMtime(t *testing.T) {
 			if err := os.Chtimes(path+".gz", gzMtime, gzMtime); err != nil {
 				t.Fatal(err)
 			}
-			if err := DecompressFile(path+".gz", ".gz", true, true, false, false); err != nil {
+			if err := DecompressFile(path+".gz", ".gz", true, true, false, nil); err != nil {
 				t.Fatal(err)
 			}
 			checkMeta(t, path, 0o604, gzMtime)

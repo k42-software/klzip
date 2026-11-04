@@ -5,14 +5,18 @@
 package main
 
 import (
+	"bytes"
+	stdgzip "compress/gzip"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// executeArgs does what main does with a command line, except exit. Keep it in
-// step with main.
+// executeArgs does what main does with a command line, except exit.  If main
+// would exit with a failure, it returns an error with what main would have
+// written to stderr.  Keep it in step with main.
 func executeArgs(args []string) error {
 	cli, err := parseArgs(args)
 	if err != nil {
@@ -24,7 +28,34 @@ func executeArgs(args []string) error {
 		return err
 	}
 
-	return Run(opts)
+	var stderr bytes.Buffer
+	if !Run(opts, &stderr) {
+		return errors.New(stderr.String())
+	}
+
+	return nil
+}
+
+// writeNamedGzip writes a gzip file at path whose header stores name.
+func writeNamedGzip(t *testing.T, path, name, contents string) {
+	t.Helper()
+
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	zw := stdgzip.NewWriter(f)
+	zw.Name = name
+	if _, err := zw.Write([]byte(contents)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestExecuteStubs(t *testing.T) {
@@ -89,5 +120,126 @@ func TestExecuteCustomSuffixRoundTrip(t *testing.T) {
 	}
 	if string(got) != "some data\n" {
 		t.Errorf("content = %q", got)
+	}
+}
+
+func TestExecuteSeveralFiles(t *testing.T) {
+	dir := t.TempDir()
+	var paths []string
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("some data\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+
+	if err := executeArgs(append([]string{"-k", "-j", "2"}, paths...)); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range paths {
+		if _, err := os.Stat(path + ".gz"); err != nil {
+			t.Errorf("expected %s.gz to exist: %v", filepath.Base(path), err)
+		}
+	}
+}
+
+// A file that fails is reported by name, and the other files are still done.
+func TestExecuteFailedFileDoesNotStopOthers(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing.txt")
+	path := filepath.Join(dir, "data.txt")
+	if err := os.WriteFile(path, []byte("some data\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := executeArgs([]string{"-j", "1", missing, path})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if want := "klzip: error: " + missing + ": "; !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("error = %q, want it to start with %q", err, want)
+	}
+
+	if _, err := os.Stat(path + ".gz"); err != nil {
+		t.Errorf("the second file was not compressed: %v", err)
+	}
+}
+
+// A file and its own output listed together: the output name already has the
+// suffix, so it is skipped, and nothing is lost.
+func TestExecuteFileAndItsOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(path, []byte("my new data\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := []byte("an old archive")
+	if err := os.WriteFile(path+".gz", old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := executeArgs([]string{path, path + ".gz"})
+
+	want := "klzip: error: " + path + ": output file already exists\nklzip: " + path + ".gz: already has .gz suffix -- unchanged\n"
+	if err == nil || err.Error() != want {
+		t.Errorf("error = %v, want %q", err, want)
+	}
+
+	if got, err := os.ReadFile(path); err != nil || string(got) != "my new data\n" {
+		t.Errorf("a.txt = %q, %v; want it unchanged", got, err)
+	}
+	if got, err := os.ReadFile(path + ".gz"); err != nil || !bytes.Equal(got, old) {
+		t.Errorf("a.txt.gz = %q, %v; want it unchanged", got, err)
+	}
+	if _, err := os.Stat(path + ".gz.gz"); err == nil {
+		t.Error("a.txt.gz.gz was created")
+	}
+}
+
+func TestExecuteFileAndMissingOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(path, []byte("some data\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := executeArgs([]string{path, path + ".gz"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(path + ".gz"); err != nil {
+		t.Errorf("a.txt was not compressed: %v", err)
+	}
+	if _, err := os.Stat(path + ".gz.gz"); err == nil {
+		t.Error("a.txt.gz.gz was created")
+	}
+}
+
+// Files that store the same name are decompressed one at a time with -N, so
+// the first is converted, and the second is refused with its input kept.
+func TestExecuteSharedStoredName(t *testing.T) {
+	dir := t.TempDir()
+	mon := filepath.Join(dir, "mon.gz")
+	tue := filepath.Join(dir, "tue.gz")
+	writeNamedGzip(t, mon, "backup.sql", "monday\n")
+	writeNamedGzip(t, tue, "backup.sql", "tuesday\n")
+
+	err := executeArgs([]string{"-d", "-N", mon, tue})
+	if want := "klzip: error: " + tue + ": output file already exists"; err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("error = %v, want it to start with %q", err, want)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "backup.sql"))
+	if err != nil || string(got) != "monday\n" {
+		t.Errorf("backup.sql = %q, %v; want the first file's contents", got, err)
+	}
+
+	if _, err := os.Stat(mon); err == nil {
+		t.Error("the first input was kept, want it removed")
+	}
+	if _, err := os.Stat(tue); err != nil {
+		t.Errorf("the second input was not kept: %v", err)
 	}
 }

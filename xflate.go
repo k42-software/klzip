@@ -6,16 +6,17 @@ package main
 
 import (
 	"encoding/binary"
-	"github.com/dsnet/compress/xflate"
-	"github.com/dustin/go-humanize"
-	"github.com/klauspost/compress/gzip"
-	"github.com/pkg/errors"
 	"hash/crc32"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/dsnet/compress/xflate"
+	"github.com/dustin/go-humanize"
+	"github.com/klauspost/compress/gzip"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -27,12 +28,12 @@ const (
 
 // XflateCompressFile is like CompressFile but writes the data as an xflate
 // stream inside a gzip container, which makes the output seekable.
-func XflateCompressFile(filename, suffix string, level int, keep, force, named, verbose bool) error {
+func XflateCompressFile(filename, suffix string, level int, keep, force, named bool, logger *log.Logger) error {
 
 	started := time.Now().UTC()
 
-	if verbose {
-		log.Printf(
+	if logger != nil {
+		logger.Printf(
 			"Compressing %s (using xflate)",
 			filename,
 		)
@@ -43,55 +44,13 @@ func XflateCompressFile(filename, suffix string, level int, keep, force, named, 
 			outputFilename: filename + suffix,
 			mtime:          info.ModTime(),
 			run: func(w io.Writer) error {
-				// Write Gzip header.
-				header := &gzip.Header{
-					Comment: "Encoded using XFLATE",
-					OS:      gzipOSUnknown,
-				}
+				var name string
+				var mtime time.Time
 				if named {
-					header.Name = filepath.Base(filename)
-					header.ModTime = info.ModTime()
-				}
-				if _, err := writeGzipHeader(w, header); err != nil {
-					return errors.Wrap(err, "error writing header")
+					name, mtime = filepath.Base(filename), info.ModTime()
 				}
 
-				// Instead of using flate.Writer, we use xflate.Writer instead.
-				// We choose a relative small chunk size of 64KiB for better
-				// random access properties, at the expense of compression ratio.
-				xw, err := xflate.NewWriter(w, &xflate.WriterConfig{
-					Level:     level,
-					ChunkSize: 1 << 16,
-				})
-				if err != nil {
-					return errors.Wrap(err, "error creating xflate writer")
-				}
-
-				// Write the test data.
-				crc := crc32.NewIEEE()
-				mw := io.MultiWriter(xw, crc) // Write to both compressor and hasher
-				written, err := io.Copy(mw, r)
-				if err != nil {
-					return errors.Wrap(err, "error writing data")
-				}
-
-				if err := xw.Flush(xflate.FlushSync); err != nil {
-					return errors.Wrap(err, "error flushing data")
-				}
-
-				if err := xw.Close(); err != nil {
-					return errors.Wrap(err, "error closing output writer")
-				}
-
-				// Write Gzip footer.
-				if err := binary.Write(w, binary.LittleEndian, uint32(crc.Sum32())); err != nil {
-					return errors.Wrap(err, "error writing footer: checksum")
-				}
-				if err := binary.Write(w, binary.LittleEndian, uint32(written)); err != nil {
-					return errors.Wrap(err, "error writing footer: size")
-				}
-
-				return nil
+				return xflateStream(r, w, level, name, mtime)
 			},
 		}, nil
 	})
@@ -99,8 +58,8 @@ func XflateCompressFile(filename, suffix string, level int, keep, force, named, 
 		return err
 	}
 
-	if verbose {
-		log.Printf(
+	if logger != nil {
+		logger.Printf(
 			"Compressed %s from %s to %s (level %d) in %v",
 			res.outputFilename,
 			humanize.Bytes(uint64(res.inputSize)),
@@ -108,6 +67,58 @@ func XflateCompressFile(filename, suffix string, level int, keep, force, named, 
 			level,
 			time.Since(started),
 		)
+	}
+
+	return nil
+}
+
+// xflateStream compresses r to w as an xflate stream inside a gzip container.
+// The gzip header stores name and mtime, and a zero mtime stores none.
+func xflateStream(r io.Reader, w io.Writer, level int, name string, mtime time.Time) error {
+	// Write Gzip header.
+	header := &gzip.Header{
+		Comment: "Encoded using XFLATE",
+		OS:      gzipOSUnknown,
+		Name:    name,
+		ModTime: mtime,
+	}
+	if _, err := writeGzipHeader(w, header); err != nil {
+		return errors.Wrap(err, "error writing header")
+	}
+
+	// xflate.Writer compresses the data in chunks that can each be
+	// read on their own.  The chunk size of 64KiB keeps random access
+	// cheap, at the cost of a worse compression ratio.
+	xw, err := xflate.NewWriter(w, &xflate.WriterConfig{
+		Level:     level,
+		ChunkSize: 1 << 16,
+	})
+	if err != nil {
+		return errors.Wrap(err, "error creating xflate writer")
+	}
+
+	// Write the data.
+	crc := crc32.NewIEEE()
+	mw := io.MultiWriter(xw, crc) // Write to both compressor and hasher
+	written, err := io.Copy(mw, r)
+	if err != nil {
+		return errors.Wrap(err, "error writing data")
+	}
+
+	if err := xw.Flush(xflate.FlushSync); err != nil {
+		return errors.Wrap(err, "error flushing data")
+	}
+
+	if err := xw.Close(); err != nil {
+		return errors.Wrap(err, "error closing output writer")
+	}
+
+	// Write Gzip footer.
+	if err := binary.Write(w, binary.LittleEndian, uint32(crc.Sum32())); err != nil {
+		return errors.Wrap(err, "error writing footer: checksum")
+	}
+	if err := binary.Write(w, binary.LittleEndian, uint32(written)); err != nil {
+		return errors.Wrap(err, "error writing footer: size")
 	}
 
 	return nil
