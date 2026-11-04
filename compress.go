@@ -78,6 +78,11 @@ func CompressFile(filename, suffix string, level int, keep, force, named, verbos
 	if named {
 		zw.Name = filepath.Base(filename)
 		zw.ModTime = inputInfo.ModTime()
+	} else {
+		// A zero time.Time has a large negative Unix time, which the writer
+		// truncates into a bogus header mtime.  The Unix epoch encodes as 0,
+		// meaning no mtime.
+		zw.ModTime = time.Unix(0, 0)
 	}
 
 	_, err = io.Copy(zw, bufio.NewReader(inputFile))

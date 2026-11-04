@@ -185,7 +185,9 @@ func writeGzipHeader(w io.Writer, header *gzip.Header) (n int, err error) {
 	if header.Comment != "" {
 		buffer[3] |= 0x10
 	}
-	binary.LittleEndian.PutUint32(buffer[4:8], uint32(header.ModTime.Unix()))
+	if !header.ModTime.IsZero() {
+		binary.LittleEndian.PutUint32(buffer[4:8], uint32(header.ModTime.Unix()))
+	}
 	buffer[8] = 0
 	buffer[9] = header.OS
 
