@@ -24,6 +24,9 @@ const (
 
 	// ModeTest checks the integrity of a compressed file.
 	ModeTest
+
+	// ModeList shows the sizes of a compressed file.
+	ModeList
 )
 
 // stdinName is the name in Options.Files that stands for stdin.
@@ -60,8 +63,12 @@ type Options struct {
 	Force bool
 
 	// Named saves the original name and mtime when compressing, and restores
-	// them when decompressing.
+	// them when decompressing.  When listing, it shows the name and mtime stored
+	// in the file.
 	Named bool
+
+	// Quiet leaves the heading out of the listing.
+	Quiet bool
 
 	// Rsyncable compresses to an rsync-friendly archive.  It is only used to
 	// compress.
@@ -79,6 +86,10 @@ func (opts Options) writesToStdout(file string) bool {
 // written to stderr in the order of the files.  It reports whether every file
 // succeeded.
 func Run(opts Options) bool {
+	if opts.Mode == ModeList {
+		return runList(opts)
+	}
+
 	// The files that write to stdout take turns, in the order of the files.
 	positions := make(map[string]int)
 	for _, file := range opts.Files {

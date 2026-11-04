@@ -77,7 +77,6 @@ func TestExecuteStubs(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"list", []string{"-l", "f"}, "--list is not implemented"},
 		{"recursive", []string{"-r", "f"}, "--recursive is not implemented"},
 		{"dev file", []string{"/dev/null"}, "dev devices"},
 	}

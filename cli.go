@@ -28,11 +28,11 @@ type CLI struct {
 	Force      bool   `short:"f" help:"Force overwrite of output file"`
 	Jobs       int    `short:"j" help:"Number of files to process at once (default: one per CPU, or 1 with -d -N)"`
 	Keep       bool   `short:"k" help:"Keep (don't delete) input files"`
-	List       bool   `short:"l" help:"[NOT IMPLEMENTED] List the contents of the compressed file"`
+	List       bool   `short:"l" help:"List the sizes of the compressed files; with -v, also the method, checksum and date"`
 	Licence    bool   `short:"L" help:"Display licence" aliases:"license"`
 	NoName     bool   `short:"n" name:"no-name" xor:"name" help:"Do not save or restore the original filename and timestamp"`
 	Name       bool   `short:"N" xor:"name" help:"Save or restore the original filename and timestamp"`
-	Quiet      bool   `short:"q" help:"Accepted for compatibility with gzip; has no effect"`
+	Quiet      bool   `short:"q" help:"Leave the heading out of the listing with -l"`
 	Recursive  bool   `short:"r" help:"[NOT IMPLEMENTED] Process directories recursively"`
 	Rsyncable  bool   `help:"Make rsync-friendly archive (xflate mode)"`
 	Suffix     string `short:"S" default:"${suffix}" help:"Suffix for compressed files"`
@@ -106,10 +106,7 @@ func (c *CLI) jobs() int {
 // options checks that the command line asks for something klzip can do, and
 // returns what to do.
 func (c *CLI) options() (Options, error) {
-	switch {
-	case c.List:
-		return Options{}, errors.New("--list is not implemented")
-	case c.Recursive:
+	if c.Recursive {
 		return Options{}, errors.New("--recursive is not implemented")
 	}
 
@@ -137,9 +134,13 @@ func (c *CLI) options() (Options, error) {
 		Named:     !c.NoName, // Compressed files are named by default.
 		Rsyncable: c.Rsyncable,
 		Verbose:   c.Verbose,
+		Quiet:     c.Quiet,
 	}
 
 	switch {
+	case c.List:
+		opts.Mode = ModeList
+		opts.Named = c.Name // Stored names are only shown when asked for.
 	case c.Test:
 		opts.Mode = ModeTest
 	case c.Decompress:

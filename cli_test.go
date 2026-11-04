@@ -269,6 +269,17 @@ func TestOptions(t *testing.T) {
 		{"stdout", []string{"-c", "a", "b"}, Options{
 			Mode: ModeCompress, Files: []string{"a", "b"}, Jobs: jobs, Stdout: true, Suffix: ".gz", Level: 5, Named: true,
 		}},
+		{"list", []string{"-l", "f.gz"}, Options{
+			Mode: ModeList, Files: []string{"f.gz"}, Jobs: jobs, Suffix: ".gz", Level: 5,
+		}},
+		// Stored names are only shown when asked for.
+		{"list with names", []string{"-l", "-N", "f.gz"}, Options{
+			Mode: ModeList, Files: []string{"f.gz"}, Jobs: jobs, Suffix: ".gz", Level: 5, Named: true,
+		}},
+		{"list quiet and verbose", []string{"-lvq", "f.gz"}, Options{
+			Mode: ModeList, Files: []string{"f.gz"}, Jobs: jobs, Suffix: ".gz", Level: 5,
+			Verbose: true, Quiet: true,
+		}},
 		{"test", []string{"-t", "f.gz"}, Options{
 			Mode: ModeTest, Files: []string{"f.gz"}, Jobs: jobs, Suffix: ".gz", Level: 5, Named: true,
 		}},
