@@ -76,6 +76,10 @@ func DecompressFile(filename, suffix string, keep, force, verbose bool) (err err
 	//goland:noinspection GoUnhandledErrorResult
 	defer outputFile.Cleanup()
 
+	if err := copyMode(outputFile.File, inputInfo); err != nil {
+		return err
+	}
+
 	outputBuffer := bufio.NewWriter(outputFile)
 
 	zr, err = gzip.NewReader(bufio.NewReader(inputFile))
@@ -98,6 +102,10 @@ func DecompressFile(filename, suffix string, keep, force, verbose bool) (err err
 
 	if err := outputBuffer.Flush(); err != nil {
 		return errors.Wrap(err, "error flushing output buffer")
+	}
+
+	if err := copyTimes(outputFile.Name(), inputInfo.ModTime()); err != nil {
+		return err
 	}
 
 	if err := outputFile.CloseAtomicallyReplace(); err != nil {

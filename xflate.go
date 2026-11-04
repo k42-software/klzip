@@ -76,6 +76,10 @@ func XflateCompressFile(filename, suffix string, level int, keep, force, named, 
 	//goland:noinspection GoUnhandledErrorResult
 	defer outputFile.Cleanup()
 
+	if err := copyMode(outputFile.File, inputInfo); err != nil {
+		return err
+	}
+
 	outputBuffer := bufio.NewWriter(outputFile)
 
 	// Write Gzip header.
@@ -135,6 +139,10 @@ func XflateCompressFile(filename, suffix string, level int, keep, force, named, 
 
 	if err := outputBuffer.Flush(); err != nil {
 		return errors.Wrap(err, "error flushing output buffer")
+	}
+
+	if err := copyTimes(outputFile.Name(), inputInfo.ModTime()); err != nil {
+		return err
 	}
 
 	if err := outputFile.CloseAtomicallyReplace(); err != nil {

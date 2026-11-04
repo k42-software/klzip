@@ -68,6 +68,10 @@ func CompressFile(filename, suffix string, level int, keep, force, named, verbos
 	//goland:noinspection GoUnhandledErrorResult
 	defer outputFile.Cleanup()
 
+	if err := copyMode(outputFile.File, inputInfo); err != nil {
+		return err
+	}
+
 	outputBuffer := bufio.NewWriter(outputFile)
 
 	zw, err = gzip.NewWriterLevel(outputBuffer, level)
@@ -104,6 +108,10 @@ func CompressFile(filename, suffix string, level int, keep, force, named, verbos
 
 	if err := outputBuffer.Flush(); err != nil {
 		return errors.Wrap(err, "error flushing output buffer")
+	}
+
+	if err := copyTimes(outputFile.Name(), inputInfo.ModTime()); err != nil {
+		return err
 	}
 
 	if err := outputFile.CloseAtomicallyReplace(); err != nil {
