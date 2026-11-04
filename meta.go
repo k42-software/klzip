@@ -6,6 +6,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/pkg/errors"
@@ -26,4 +27,16 @@ func copyTimes(outputFilename string, mtime time.Time) error {
 		return errors.Wrap(err, "error setting output file times")
 	}
 	return nil
+}
+
+// headerBaseName returns the final path element of a filename stored in a gzip
+// header, or "" if the name is empty or is ".", ".." or "/".  Directory
+// components of the stored name are dropped so that a hostile header cannot
+// write outside the target directory.
+func headerBaseName(name string) string {
+	base := filepath.Base(filepath.FromSlash(name))
+	if name == "" || base == "." || base == ".." || base == string(filepath.Separator) {
+		return ""
+	}
+	return base
 }

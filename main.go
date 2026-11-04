@@ -203,16 +203,23 @@ func decompressHandler(cmd *gocmd.Cmd, args []string) error {
 
 	keep := cmd.FlagValue("Keep").(bool)
 	force := cmd.FlagValue("Force").(bool)
+	named := cmd.FlagValue("Name").(bool)
+	notNamed := cmd.FlagValue("NoName").(bool)
 	verbose := cmd.FlagValue("Verbose").(bool)
+
+	if named && notNamed {
+		return errors.New("cannot specify both --name and --no-name")
+	}
 
 	if verbose {
 		log.Println("DEBUG: filename:", filename)
 		log.Println("DEBUG: suffix:", suffix)
 		log.Println("DEBUG: keep:", keep)
 		log.Println("DEBUG: force:", force)
+		log.Println("DEBUG: named:", named)
 	}
 
-	return DecompressFile(filename, suffix, keep, force, verbose)
+	return DecompressFile(filename, suffix, keep, force, named, verbose)
 }
 
 func testHandler(cmd *gocmd.Cmd, args []string) error {

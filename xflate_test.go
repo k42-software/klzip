@@ -35,7 +35,7 @@ func TestXflateCompressFileNoNameHasZeroMtime(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := DecompressFile(path+".gz", ".gz", false, false, false); err != nil {
+	if err := DecompressFile(path+".gz", ".gz", false, false, false, false); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)

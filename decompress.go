@@ -19,9 +19,10 @@ import (
 )
 
 // DecompressFile takes a filename and decompresses it to a new file of the
-// same name without the .gz suffix.  If keep is false, the original file is
-// deleted if decompression is successful.
-func DecompressFile(filename, suffix string, keep, force, verbose bool) (err error) {
+// same name without the .gz suffix.  If named is true, the original name and
+// modification time stored in the file are restored when present.  If keep is
+// false, the original file is deleted if decompression is successful.
+func DecompressFile(filename, suffix string, keep, force, named, verbose bool) (err error) {
 
 	var (
 		inputInfo  os.FileInfo
@@ -54,10 +55,30 @@ func DecompressFile(filename, suffix string, keep, force, verbose bool) (err err
 	//goland:noinspection GoUnhandledErrorResult
 	defer inputFile.Close()
 
-	outputFilename = strings.TrimSuffix(filename, suffix)
+	zr, err = gzip.NewReader(bufio.NewReader(inputFile))
+	if err != nil {
+		return err
+	}
 
-	// Refuse if the output is the input file itself, which a hard link can
-	// cause under a different name.
+	// By default the output takes the name (suffix removed) and mtime of the
+	// compressed file.  With named, the name and mtime stored in the gzip
+	// header are used when present.
+	outputFilename = strings.TrimSuffix(filename, suffix)
+	mtime := inputInfo.ModTime()
+	if named {
+		if base := headerBaseName(zr.Name); base != "" {
+			outputFilename = filepath.Join(filepath.Dir(filename), base)
+		}
+		// The reader reports a header time of 0 (not recorded) as the Unix
+		// epoch, so test for that.
+		if zr.ModTime.Unix() > 0 {
+			mtime = zr.ModTime
+		}
+	}
+
+	// Refuse if the output is the input file itself.  With -N the output name
+	// comes from the header, so it can reach the input through a hard link or,
+	// on a case-insensitive filesystem, a name that differs only in case.
 	if existing, err := os.Stat(outputFilename); err == nil {
 		if os.SameFile(inputInfo, existing) {
 			return errors.Errorf("%s: output would overwrite the input file", filename)
@@ -82,11 +103,6 @@ func DecompressFile(filename, suffix string, keep, force, verbose bool) (err err
 
 	outputBuffer := bufio.NewWriter(outputFile)
 
-	zr, err = gzip.NewReader(bufio.NewReader(inputFile))
-	if err != nil {
-		return err
-	}
-
 	_, err = io.Copy(outputBuffer, zr)
 	if err != nil {
 		return err
@@ -104,7 +120,7 @@ func DecompressFile(filename, suffix string, keep, force, verbose bool) (err err
 		return errors.Wrap(err, "error flushing output buffer")
 	}
 
-	if err := copyTimes(outputFile.Name(), inputInfo.ModTime()); err != nil {
+	if err := copyTimes(outputFile.Name(), mtime); err != nil {
 		return err
 	}
 

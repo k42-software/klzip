@@ -70,7 +70,7 @@ func TestOutputPreservesModeAndMtime(t *testing.T) {
 			if err := os.Chtimes(path+".gz", gzMtime, gzMtime); err != nil {
 				t.Fatal(err)
 			}
-			if err := DecompressFile(path+".gz", ".gz", true, true, false); err != nil {
+			if err := DecompressFile(path+".gz", ".gz", true, true, false, false); err != nil {
 				t.Fatal(err)
 			}
 			checkMeta(t, path, 0o604, gzMtime)
