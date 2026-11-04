@@ -68,10 +68,10 @@ func forEachFile(files []string, jobs int, w io.Writer, do func(file string, log
 		switch {
 		case r.err == nil:
 		case errors.As(r.err, &skip):
-			_, _ = fmt.Fprintf(w, "%s: %s: %s\n", name, file, skip.reason)
+			_, _ = fmt.Fprintf(w, "%s: %s: %s\n", name, displayName(file), skip.reason)
 		default:
 			ok = false
-			_, _ = fmt.Fprintf(w, "%s: error: %s: %v\n", name, file, r.err)
+			_, _ = fmt.Fprintf(w, "%s: error: %s: %v\n", name, displayName(file), r.err)
 		}
 	}
 

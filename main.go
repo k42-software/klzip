@@ -39,7 +39,7 @@ func main() {
 	opts, err := cli.options()
 	kctx.FatalIfErrorf(err)
 
-	if !Run(opts, os.Stderr) {
+	if !Run(opts) {
 		os.Exit(1)
 	}
 }

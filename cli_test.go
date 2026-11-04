@@ -260,6 +260,15 @@ func TestOptions(t *testing.T) {
 		{"repeated files are dropped", []string{"a", "./a", "b", "a"}, Options{
 			Mode: ModeCompress, Files: []string{"a", "b"}, Jobs: jobs, Suffix: ".gz", Level: 5, Named: true,
 		}},
+		{"no files reads stdin", []string{"-k"}, Options{
+			Mode: ModeCompress, Files: []string{"-"}, Jobs: jobs, Suffix: ".gz", Level: 5, Named: true, Keep: true,
+		}},
+		{"stdin marker", []string{"-"}, Options{
+			Mode: ModeCompress, Files: []string{"-"}, Jobs: jobs, Suffix: ".gz", Level: 5, Named: true,
+		}},
+		{"stdout", []string{"-c", "a", "b"}, Options{
+			Mode: ModeCompress, Files: []string{"a", "b"}, Jobs: jobs, Stdout: true, Suffix: ".gz", Level: 5, Named: true,
+		}},
 		{"test", []string{"-t", "f.gz"}, Options{
 			Mode: ModeTest, Files: []string{"f.gz"}, Jobs: jobs, Suffix: ".gz", Level: 5, Named: true,
 		}},

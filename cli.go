@@ -23,7 +23,7 @@ const (
 
 // CLI is the command line of klzip.
 type CLI struct {
-	Stdout     bool   `short:"c" help:"[NOT IMPLEMENTED] Write output to stdout instead of a file" aliases:"to-stdout"`
+	Stdout     bool   `short:"c" help:"Write output to stdout, and keep the input files" aliases:"to-stdout"`
 	Decompress bool   `short:"d" help:"Decompress the input file"`
 	Force      bool   `short:"f" help:"Force overwrite of output file"`
 	Jobs       int    `short:"j" help:"Number of files to process at once (default: one per CPU, or 1 with -d -N)"`
@@ -51,7 +51,7 @@ type CLI struct {
 	Level8 bool `short:"8" name:"level-8" hidden:"" help:"Compress level eight"`
 	Level9 bool `short:"9" name:"best" help:"Compress level nine (best)"`
 
-	Files []string `arg:"" optional:"" name:"file" help:"Files to compress or decompress"`
+	Files []string `arg:"" optional:"" name:"file" help:"Files to compress or decompress (default: stdin)"`
 }
 
 // Validate is called by kong after the command line has been parsed.
@@ -107,31 +107,29 @@ func (c *CLI) jobs() int {
 // returns what to do.
 func (c *CLI) options() (Options, error) {
 	switch {
-	case c.Stdout:
-		return Options{}, errors.New("--stdout is not implemented")
 	case c.List:
 		return Options{}, errors.New("--list is not implemented")
 	case c.Recursive:
 		return Options{}, errors.New("--recursive is not implemented")
 	}
 
-	if len(c.Files) == 0 {
-		return Options{}, errors.New("reading from stdin is not implemented")
-	}
-
 	for _, file := range c.Files {
-		switch {
-		case file == "-":
-			return Options{}, errors.New("reading from stdin is not implemented")
-		case strings.HasPrefix(file, "/dev/"):
+		if strings.HasPrefix(file, "/dev/") {
 			return Options{}, errors.New("interacting with dev devices is not implemented yet")
 		}
 	}
 
+	// Without files, stdin is read.
+	files := c.Files
+	if len(files) == 0 {
+		files = []string{stdinName}
+	}
+
 	opts := Options{
 		Mode:      ModeCompress,
-		Files:     uniqueFiles(c.Files),
+		Files:     uniqueFiles(files),
 		Jobs:      c.jobs(),
+		Stdout:    c.Stdout,
 		Suffix:    c.suffix(),
 		Level:     c.level(),
 		Keep:      c.Keep,

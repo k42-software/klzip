@@ -14,26 +14,39 @@ import (
 	"testing"
 )
 
-// executeArgs does what main does with a command line, except exit.  If main
-// would exit with a failure, it returns an error with what main would have
-// written to stderr.  Keep it in step with main.
-func executeArgs(args []string) error {
+// executeWithStdin does what main does with a command line, except exit.  It
+// returns what main would have written to stdout.  If main would exit with a
+// failure, the error holds what main would have written to stderr.  Keep it in
+// step with main.
+func executeWithStdin(t *testing.T, in string, args []string) (string, error) {
+	t.Helper()
+
+	out, errs := useStreams(t, strings.NewReader(in))
+
 	cli, err := parseArgs(args)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	opts, err := cli.options()
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	var stderr bytes.Buffer
-	if !Run(opts, &stderr) {
-		return errors.New(stderr.String())
+	if !Run(opts) {
+		return out.String(), errors.New(errs.String())
 	}
 
-	return nil
+	return out.String(), nil
+}
+
+// executeArgs is executeWithStdin with nothing to read on stdin, and without the
+// output on stdout.
+func executeArgs(t *testing.T, args []string) error {
+	t.Helper()
+
+	_, err := executeWithStdin(t, "", args)
+	return err
 }
 
 // writeNamedGzip writes a gzip file at path whose header stores name.
@@ -64,17 +77,14 @@ func TestExecuteStubs(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"stdout", []string{"-c", "f"}, "--stdout is not implemented"},
 		{"list", []string{"-l", "f"}, "--list is not implemented"},
 		{"recursive", []string{"-r", "f"}, "--recursive is not implemented"},
-		{"no file", []string{"-k"}, "stdin is not implemented"},
-		{"stdin marker", []string{"-"}, "stdin is not implemented"},
 		{"dev file", []string{"/dev/null"}, "dev devices"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := executeArgs(tt.args)
+			err := executeArgs(t, tt.args)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("error = %v, want one mentioning %q", err, tt.want)
 			}
@@ -89,7 +99,7 @@ func TestExecuteCombinedFlagsKeepInput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := executeArgs([]string{"-kv", path}); err != nil {
+	if err := executeArgs(t, []string{"-kv", path}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -109,7 +119,7 @@ func TestExecuteCustomSuffixRoundTrip(t *testing.T) {
 	}
 
 	for _, args := range [][]string{{"-S", "foo", path}, {"-d", "-S", "foo", path + ".foo"}} {
-		if err := executeArgs(args); err != nil {
+		if err := executeArgs(t, args); err != nil {
 			t.Fatalf("%q: %v", args, err)
 		}
 	}
@@ -134,7 +144,7 @@ func TestExecuteSeveralFiles(t *testing.T) {
 		paths = append(paths, path)
 	}
 
-	if err := executeArgs(append([]string{"-k", "-j", "2"}, paths...)); err != nil {
+	if err := executeArgs(t, append([]string{"-k", "-j", "2"}, paths...)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -154,7 +164,7 @@ func TestExecuteFailedFileDoesNotStopOthers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := executeArgs([]string{"-j", "1", missing, path})
+	err := executeArgs(t, []string{"-j", "1", missing, path})
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -180,7 +190,7 @@ func TestExecuteFileAndItsOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := executeArgs([]string{path, path + ".gz"})
+	err := executeArgs(t, []string{path, path + ".gz"})
 
 	want := "klzip: error: " + path + ": output file already exists\nklzip: " + path + ".gz: already has .gz suffix -- unchanged\n"
 	if err == nil || err.Error() != want {
@@ -205,7 +215,7 @@ func TestExecuteFileAndMissingOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := executeArgs([]string{path, path + ".gz"}); err != nil {
+	if err := executeArgs(t, []string{path, path + ".gz"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -226,7 +236,7 @@ func TestExecuteSharedStoredName(t *testing.T) {
 	writeNamedGzip(t, mon, "backup.sql", "monday\n")
 	writeNamedGzip(t, tue, "backup.sql", "tuesday\n")
 
-	err := executeArgs([]string{"-d", "-N", mon, tue})
+	err := executeArgs(t, []string{"-d", "-N", mon, tue})
 	if want := "klzip: error: " + tue + ": output file already exists"; err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("error = %v, want it to start with %q", err, want)
 	}

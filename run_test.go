@@ -6,19 +6,34 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
+// useStreams replaces the standard streams for the length of a test.  Stdin
+// reads from in.  It returns what is written to stdout and to stderr.
+func useStreams(t *testing.T, in io.Reader) (out, errs *bytes.Buffer) {
+	t.Helper()
+
+	oldIn, oldOut, oldErr := stdin, stdout, stderr
+	t.Cleanup(func() { stdin, stdout, stderr = oldIn, oldOut, oldErr })
+
+	out, errs = &bytes.Buffer{}, &bytes.Buffer{}
+	stdin, stdout, stderr = in, out, errs
+
+	return out, errs
+}
+
 func TestRunUnknownMode(t *testing.T) {
-	var out bytes.Buffer
-	if Run(Options{Mode: Mode(99), Files: []string{"f"}, Jobs: 1}, &out) {
+	_, errs := useStreams(t, strings.NewReader(""))
+	if Run(Options{Mode: Mode(99), Files: []string{"f"}, Jobs: 1}) {
 		t.Error("expected a failure")
 	}
-	if !strings.Contains(out.String(), "unknown mode 99") {
-		t.Errorf("output = %q, want it to mention the unknown mode", out.String())
+	if !strings.Contains(errs.String(), "unknown mode 99") {
+		t.Errorf("stderr = %q, want it to mention the unknown mode", errs.String())
 	}
 }
 
@@ -47,14 +62,14 @@ func TestRunCompressSkipsFilesWithSuffix(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			var out bytes.Buffer
+			_, errs := useStreams(t, strings.NewReader(""))
 			ok := Run(Options{
 				Mode: ModeCompress, Files: []string{path}, Jobs: 1, Suffix: tt.suffix,
 				Level: 5, Keep: true, Force: tt.force, Named: true, Rsyncable: tt.rsyncable,
-			}, &out)
+			})
 
 			if !ok {
-				t.Errorf("not ok: %q", out.String())
+				t.Errorf("not ok: %q", errs.String())
 			}
 
 			_, err := os.Stat(path + tt.suffix)
@@ -66,8 +81,8 @@ func TestRunCompressSkipsFilesWithSuffix(t *testing.T) {
 			if tt.wantSkipped {
 				want = "klzip: " + path + ": already has " + tt.suffix + " suffix -- unchanged\n"
 			}
-			if out.String() != want {
-				t.Errorf("output = %q, want %q", out.String(), want)
+			if errs.String() != want {
+				t.Errorf("stderr = %q, want %q", errs.String(), want)
 			}
 		})
 	}
