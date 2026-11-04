@@ -56,10 +56,17 @@ func DecompressFile(filename, suffix string, keep, force, verbose bool) (err err
 
 	outputFilename = strings.TrimSuffix(filename, suffix)
 
-	if !force {
-		if _, err := os.Stat(outputFilename); err == nil {
+	// Refuse if the output is the input file itself, which a hard link can
+	// cause under a different name.
+	if existing, err := os.Stat(outputFilename); err == nil {
+		if os.SameFile(inputInfo, existing) {
+			return errors.Errorf("%s: output would overwrite the input file", filename)
+		}
+		if !force {
 			return errors.New("output file already exists")
 		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 
 	outputFile, err = renameio.TempFile(filepath.Dir(outputFilename), outputFilename)
